@@ -22,6 +22,7 @@ interface ProjectContextType {
   activePublicSlug: string | null;
   setActivePublicSlug: (slug: string | null) => void;
   isAuthenticated: boolean;
+  authLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
@@ -59,10 +60,11 @@ const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
 
 export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true); // default true for immediate preview or syncs with auth
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'projects' | 'create' | 'edit' | 'public' | 'login'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'projects' | 'create' | 'edit' | 'public' | 'login'>('login');
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [activePublicSlug, setActivePublicSlug] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastState[]>([]);
@@ -74,6 +76,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const unsubscribe = authService.onAuthChange((user) => {
       setCurrentUser(user);
       setIsAuthenticated(Boolean(user));
+      setAuthLoading(false);
     });
     return () => unsubscribe();
   }, []);
@@ -103,7 +106,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   }, []);
 
-  // Handle clean URL routing (without #)
+  // Handle clean URL routing & route protection
   useEffect(() => {
     const handleLocation = () => {
       let path = window.location.pathname;
@@ -115,14 +118,36 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         window.history.replaceState(null, '', path);
       }
 
+      // 1. Rota pública de projeto (/p/:slug) - sempre acessível sem login
       if (path.startsWith('/p/')) {
         const slug = path.replace('/p/', '').replace(/\/$/, '');
         if (slug) {
           setActivePublicSlug(slug);
           setCurrentView('public');
         }
-      } else if (path === '/login') {
+        return;
+      }
+
+      // Se o Firebase ainda estiver inicializando a verificação de sessão, aguarda
+      if (authLoading) return;
+
+      // 2. Não autenticado -> Redireciona sempre para /login
+      if (!isAuthenticated) {
+        if (path !== '/login') {
+          window.history.replaceState(null, '', '/login');
+        }
         setCurrentView('login');
+        return;
+      }
+
+      // 3. Autenticado -> Permite navegação protegida
+      if (path === '/login' || path === '/') {
+        window.history.replaceState(null, '', '/dashboard');
+        setEditingProjectId(null);
+        setCurrentView('dashboard');
+      } else if (path === '/dashboard') {
+        setEditingProjectId(null);
+        setCurrentView('dashboard');
       } else if (path === '/novo-projeto' || path === '/criar' || path === '/new') {
         setEditingProjectId(null);
         setCurrentView('create');
@@ -135,7 +160,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       } else if (path === '/projetos' || path === '/projects') {
         setEditingProjectId(null);
         setCurrentView('projects');
-      } else if (path === '/dashboard' || path === '/') {
+      } else {
+        window.history.replaceState(null, '', '/dashboard');
         setEditingProjectId(null);
         setCurrentView('dashboard');
       }
@@ -148,7 +174,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       window.removeEventListener('popstate', handleLocation);
       window.removeEventListener('hashchange', handleLocation);
     };
-  }, []);
+  }, [authLoading, isAuthenticated]);
 
   const showToast = (message: string, type: 'success' | 'info' | 'cyan' = 'success') => {
     const id = Date.now() + Math.random();
@@ -365,6 +391,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         activePublicSlug,
         setActivePublicSlug,
         isAuthenticated,
+        authLoading,
         login,
         loginWithGoogle,
         register,

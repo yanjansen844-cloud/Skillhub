@@ -10,10 +10,10 @@ import { LoginView } from './views/LoginView';
 import { ToastContainer } from './components/common/ToastContainer';
 
 const AppContent: React.FC = () => {
-  const { currentView, activePublicSlug, projects, isAuthenticated } = useProjects();
+  const { currentView, activePublicSlug, projects, isAuthenticated, authLoading } = useProjects();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // If in public page view, render full-screen public page
+  // If in public page view, render full-screen public page immediately
   if (currentView === 'public' && activePublicSlug) {
     return (
       <>
@@ -33,7 +33,23 @@ const AppContent: React.FC = () => {
     );
   }
 
-  // If user is not authenticated or explicitly at login view, show Login screen
+  // While Firebase resolves authentication on startup, show sleek dark loader
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-[#080613] bg-grid flex flex-col items-center justify-center p-4 selection:bg-purple-500">
+        <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-purple-600 to-cyan-400 p-[1.5px] shadow-purple-glow mb-4">
+          <div className="w-full h-full bg-[#110c2a] rounded-[14px] flex items-center justify-center">
+            <div className="w-5 h-5 border-2 border-white/30 border-t-cyan-400 rounded-full animate-spin" />
+          </div>
+        </div>
+        <p className="font-mono text-xs text-purple-300/80 animate-pulse">
+          Inicializando SkillHub...
+        </p>
+      </div>
+    );
+  }
+
+  // If user is not authenticated or explicitly at login view, ALWAYS show Login screen
   if (!isAuthenticated || currentView === 'login') {
     return (
       <>
