@@ -30,6 +30,18 @@
   }
 }
 
+/* Rolagem do texto do prompt na página pública (Firefox + WebKit) */
+.prompt-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #3c2d73 transparent;
+}
+.prompt-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.prompt-scroll::-webkit-scrollbar-thumb {
+  background: #3c2d73;
+}
+
 /* Background grid utility */
 .bg-grid {
   background-size: 28px 28px;

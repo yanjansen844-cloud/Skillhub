@@ -397,7 +397,12 @@ export const PublicProjectPage: React.FC<Props> = ({ slug }) => {
 
                   {/* Prompt Text Block */}
                   <div className="p-4 sm:p-5 bg-[#090614]">
-                    <div className="font-mono text-xs sm:text-sm text-cyan-200/90 whitespace-pre-wrap leading-relaxed select-all">
+                    {/* Altura máxima de 10 linhas (10 × line-height 1.625em) com rolagem */}
+                    <div
+                      tabIndex={0}
+                      aria-label="Texto do prompt"
+                      className="font-mono text-xs sm:text-sm text-cyan-200/90 whitespace-pre-wrap leading-relaxed select-all max-h-[16.25em] overflow-y-auto overscroll-contain pr-2 prompt-scroll focus:outline-none focus-visible:ring-1 focus-visible:ring-cyan-500/40 rounded"
+                    >
                       {renderPromptWithPlaceholders(promptBlock.promptText)}
                     </div>
 
