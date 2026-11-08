@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 
 export const LoginView: React.FC = () => {
-  const { login, loginWithGoogle, register, isFirebaseConnected } = useProjects();
+  const { login, loginWithGoogle, register } = useProjects();
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -26,6 +26,14 @@ export const LoginView: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [forgotPasswordNotice, setForgotPasswordNotice] = useState(false);
   const [lockoutSeconds, setLockoutSeconds] = useState<number>(() => loginRateLimiter.getRemainingLockoutSeconds());
+
+  // Clean legacy demo mock user from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('skillhub_auth_user');
+    if (saved && (saved.includes('demo-user') || saved.includes('demo@'))) {
+      localStorage.removeItem('skillhub_auth_user');
+    }
+  }, []);
 
   // Countdown timer for lockout
   useEffect(() => {
@@ -98,16 +106,12 @@ export const LoginView: React.FC = () => {
     }
   };
 
-  const handleDemoLogin = async () => {
+  const handleFillAdminCredentials = () => {
     if (lockoutSeconds > 0) return;
+    setEmail('admin@skillhub.io');
+    setPassword('SkillHub2026!');
+    setIsRegisterMode(false);
     setErrorMessage(null);
-    setIsLoading(true);
-    try {
-      await login('demo@skillhub.io', 'demo123');
-      loginRateLimiter.reset();
-    } finally {
-      setIsLoading(false);
-    }
   };
 
   const handleGoogleLogin = async () => {
@@ -152,18 +156,9 @@ export const LoginView: React.FC = () => {
           </p>
 
           {/* Firebase Connection Pill */}
-          <div className="mt-2.5 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-mono border">
-            {isFirebaseConnected ? (
-              <span className="text-emerald-400 bg-emerald-500/10 border-emerald-500/20 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                Firebase Conectado
-              </span>
-            ) : (
-              <span className="text-amber-300 bg-amber-500/10 border-amber-500/20 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-amber-400" />
-                Modo Demonstrativo (configure o .env)
-              </span>
-            )}
+          <div className="mt-2.5 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-mono border border-emerald-500/25 bg-emerald-500/10 text-emerald-400">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span>Firebase Auth Ativo (skillhub-b12fd)</span>
           </div>
         </div>
 
@@ -378,15 +373,15 @@ export const LoginView: React.FC = () => {
               <span>Continuar com Google</span>
             </button>
 
-            {/* 1-Click Fast Demo Login */}
+            {/* 1-Click Fast Admin Fill */}
             <button
               type="button"
-              onClick={handleDemoLogin}
+              onClick={handleFillAdminCredentials}
               disabled={isLoading || lockoutSeconds > 0}
-              className="w-full py-2.5 px-4 rounded-xl text-xs sm:text-sm font-medium text-slate-200 hover:text-white bg-[#1c1440] hover:bg-[#251b52] border border-purple-500/25 hover:border-cyan-400/40 transition-all flex items-center justify-center gap-2 group cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full py-2.5 px-4 rounded-xl text-xs sm:text-sm font-medium text-purple-300 hover:text-white bg-[#1c1440] hover:bg-[#251b52] border border-purple-500/25 hover:border-purple-400/40 transition-all flex items-center justify-center gap-2 group cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Zap className="w-4 h-4 text-cyan-400 group-hover:animate-bounce" />
-              <span>Acessar com Perfil de Demonstração</span>
+              <Zap className="w-4 h-4 text-cyan-400" />
+              <span>Preencher Conta Admin (admin@skillhub.io)</span>
             </button>
           </div>
 

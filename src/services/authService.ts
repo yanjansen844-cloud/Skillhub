@@ -6,7 +6,7 @@ import {
   onAuthStateChanged,
   type User
 } from 'firebase/auth';
-import { auth, googleProvider, isFirebaseConfigured } from './firebase';
+import { auth, googleProvider } from './firebase';
 
 const LOCAL_USER_KEY = 'skillhub_auth_user';
 
@@ -18,18 +18,8 @@ export interface AuthUser {
 }
 
 export const authService = {
-  // Subscribe to auth state changes
+  // Subscribe to real Firebase auth state changes
   onAuthChange(callback: (user: AuthUser | null) => void) {
-    if (!isFirebaseConfigured()) {
-      try {
-        const saved = localStorage.getItem(LOCAL_USER_KEY);
-        callback(saved ? JSON.parse(saved) : null);
-      } catch {
-        callback(null);
-      }
-      return () => {};
-    }
-
     return onAuthStateChanged(auth, (firebaseUser: User | null) => {
       if (firebaseUser) {
         const user: AuthUser = {
@@ -47,77 +37,56 @@ export const authService = {
     });
   },
 
-  // Sign in with email and password
+  // Real Sign in with Firebase email and password
   async signIn(email: string, pass: string): Promise<AuthUser> {
-    if (!isFirebaseConfigured()) {
-      const mockUser: AuthUser = {
-        uid: 'demo-user-123',
-        email: email || 'criador@skillhub.io',
-        displayName: 'Criador Studio',
-        photoURL: null,
-      };
-      localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(mockUser));
-      return mockUser;
+    if (!email || !pass) {
+      throw new Error('Informe o e-mail e a senha.');
     }
 
-    const cred = await signInWithEmailAndPassword(auth, email, pass);
-    return {
+    const cred = await signInWithEmailAndPassword(auth, email.trim(), pass);
+    const user: AuthUser = {
       uid: cred.user.uid,
       email: cred.user.email,
       displayName: cred.user.displayName || cred.user.email?.split('@')[0] || 'Criador',
       photoURL: cred.user.photoURL,
     };
+    localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(user));
+    return user;
   },
 
-  // Sign up with email and password
+  // Real Sign up with Firebase email and password
   async signUp(email: string, pass: string): Promise<AuthUser> {
-    if (!isFirebaseConfigured()) {
-      const mockUser: AuthUser = {
-        uid: `user-${Date.now()}`,
-        email,
-        displayName: email.split('@')[0],
-        photoURL: null,
-      };
-      localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(mockUser));
-      return mockUser;
+    if (!email || !pass) {
+      throw new Error('Informe o e-mail e a senha para cadastro.');
     }
 
-    const cred = await createUserWithEmailAndPassword(auth, email, pass);
-    return {
+    const cred = await createUserWithEmailAndPassword(auth, email.trim(), pass);
+    const user: AuthUser = {
       uid: cred.user.uid,
       email: cred.user.email,
       displayName: cred.user.displayName || cred.user.email?.split('@')[0] || 'Criador',
       photoURL: cred.user.photoURL,
     };
+    localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(user));
+    return user;
   },
 
-  // Sign in with Google
+  // Real Sign in with Google
   async signInGoogle(): Promise<AuthUser> {
-    if (!isFirebaseConfigured()) {
-      const mockUser: AuthUser = {
-        uid: 'google-demo-user',
-        email: 'google.creator@skillhub.io',
-        displayName: 'Google Creator',
-        photoURL: null,
-      };
-      localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(mockUser));
-      return mockUser;
-    }
-
     const cred = await signInWithPopup(auth, googleProvider);
-    return {
+    const user: AuthUser = {
       uid: cred.user.uid,
       email: cred.user.email,
       displayName: cred.user.displayName || cred.user.email?.split('@')[0] || 'Criador',
       photoURL: cred.user.photoURL,
     };
+    localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(user));
+    return user;
   },
 
-  // Logout
+  // Real Logout
   async signOut(): Promise<void> {
     localStorage.removeItem(LOCAL_USER_KEY);
-    if (isFirebaseConfigured()) {
-      await signOut(auth);
-    }
+    await signOut(auth);
   }
 };

@@ -4,35 +4,28 @@ import { getFirestore } from 'firebase/firestore';
 import { getAnalytics, isSupported } from 'firebase/analytics';
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyAkYGjqg5rYshRcBzMKdI0jwaCbho1LzYw",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "skillhub-b12fd.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "skillhub-b12fd",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "skillhub-b12fd.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "912742798392",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:912742798392:web:07c544324b74cc0ee142cd",
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-GSLXL9FPLP"
 };
 
-// Validates that environment variables are properly supplied via .env
+// Validates that environment variables or production config are properly supplied
 export const isFirebaseConfigured = (): boolean => {
   return Boolean(
     firebaseConfig.apiKey &&
     firebaseConfig.projectId &&
-    firebaseConfig.apiKey.length > 10
+    firebaseConfig.apiKey.startsWith('AIzaSy')
   );
 };
 
-// Initialize with environment config, or safe fallback
+// Initialize Firebase App
 const app = getApps().length > 0 
   ? getApp() 
-  : initializeApp(isFirebaseConfigured() ? firebaseConfig : {
-      apiKey: "demo-api-key",
-      authDomain: "demo.firebaseapp.com",
-      projectId: "demo-project",
-      storageBucket: "demo.appspot.com",
-      messagingSenderId: "123456789",
-      appId: "1:123456789:web:demo"
-    });
+  : initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);

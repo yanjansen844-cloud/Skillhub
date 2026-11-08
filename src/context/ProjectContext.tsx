@@ -22,7 +22,7 @@ interface ProjectContextType {
   activePublicSlug: string | null;
   setActivePublicSlug: (slug: string | null) => void;
   isAuthenticated: boolean;
-  login: (email?: string, password?: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -73,9 +73,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     const unsubscribe = authService.onAuthChange((user) => {
       setCurrentUser(user);
-      if (user) {
-        setIsAuthenticated(true);
-      }
+      setIsAuthenticated(Boolean(user));
     });
     return () => unsubscribe();
   }, []);
@@ -300,9 +298,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setCurrentView('public');
   };
 
-  const login = async (email?: string, password?: string) => {
+  const login = async (email: string, password: string) => {
     try {
-      const user = await authService.signIn(email || 'criador@skillhub.io', password || '123456');
+      const user = await authService.signIn(email, password);
       setCurrentUser(user);
       setIsAuthenticated(true);
       window.history.pushState(null, '', '/dashboard');
