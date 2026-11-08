@@ -1,0 +1,9 @@
+# Vercel Ignore List
+.env
+.env.local
+.env.*.local
+*.log
+firestore.rules
+.git
+.github
+
