@@ -3,11 +3,13 @@ import { StatCards } from '../components/dashboard/StatCards';
 import { ViewsChart } from '../components/dashboard/ViewsChart';
 import { TopProjectsTable } from '../components/dashboard/TopProjectsTable';
 import { useProjects } from '../context/ProjectContext';
+import { useDailyMetrics } from '../hooks/useDailyMetrics';
 import { Sparkles, Share2, Plus } from 'lucide-react';
 
 export const DashboardView: React.FC = () => {
   const { navigateToCreate, projects, navigateToPublic } = useProjects();
   const latestPublished = projects.find(p => p.status === 'published');
+  const { series, loading, error } = useDailyMetrics(projects);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -20,13 +22,13 @@ export const DashboardView: React.FC = () => {
           <div className="max-w-xl">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-500/15 border border-purple-400/30 text-purple-300 text-xs font-medium mb-3">
               <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Painel do Criador • SkillHub v1.0</span>
+              <span>Painel do Criador</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-display font-bold text-white tracking-tight leading-tight">
               Central de Entrega de <span className="text-gradient-purple-cyan">Prompts & Recursos</span>
             </h1>
             <p className="text-sm text-slate-300 mt-2 leading-relaxed">
-              Crie páginas limpas e hiper-rápidas para compartilhar nos vídeos do Instagram e TikTok. Acompanhe visualizações, cliques e prompts copiados em tempo real.
+              Crie páginas limpas e hiper-rápidas para compartilhar nos vídeos do Instagram e TikTok. Acompanhe visualizações, cliques e prompts copiados pelos seus seguidores.
             </p>
           </div>
 
@@ -52,12 +54,12 @@ export const DashboardView: React.FC = () => {
       </div>
 
       {/* 4 Indicators */}
-      <StatCards />
+      <StatCards series={series} />
 
       {/* Charts & Top Projects */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-7">
-          <ViewsChart />
+          <ViewsChart series={series} loading={loading} error={error} />
         </div>
         <div className="lg:col-span-5">
           <TopProjectsTable />

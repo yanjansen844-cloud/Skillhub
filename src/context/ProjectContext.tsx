@@ -1,51 +1,56 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import type { Project } from '../types';
-import { projectService } from '../services/projectService';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import type { MetricKey, Project } from '../types';
+import { projectService, today } from '../services/projectService';
 import { authService, type AuthUser } from '../services/authService';
-import { isFirebaseConfigured } from '../services/firebase';
+
+export type ToastType = 'success' | 'info' | 'cyan' | 'error';
 
 interface ToastState {
   id: number;
   message: string;
-  type?: 'success' | 'info' | 'cyan';
+  type?: ToastType;
 }
+
+type View = 'dashboard' | 'projects' | 'create' | 'edit' | 'public' | 'login';
+
+type NewProjectData = Omit<
+  Project,
+  'id' | 'ownerId' | 'createdAt' | 'updatedAt' | 'views' | 'clicks' | 'promptsCopied'
+>;
 
 interface ProjectContextType {
   projects: Project[];
   isLoading: boolean;
-  isFirebaseConnected: boolean;
   currentUser: AuthUser | null;
-  currentView: 'dashboard' | 'projects' | 'create' | 'edit' | 'public' | 'login';
-  setCurrentView: (view: 'dashboard' | 'projects' | 'create' | 'edit' | 'public' | 'login') => void;
+  currentView: View;
   editingProjectId: string | null;
-  setEditingProjectId: (id: string | null) => void;
   activePublicSlug: string | null;
-  setActivePublicSlug: (slug: string | null) => void;
   isAuthenticated: boolean;
   authLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, remember?: boolean) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
-  register: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string, remember?: boolean) => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<void>;
   logout: () => Promise<void>;
-  
+
   // Actions
   getProjectById: (id: string) => Project | undefined;
   getProjectBySlug: (slug: string) => Project | undefined;
   fetchPublicProject: (slug: string) => Promise<Project | null>;
-  createProject: (data: Omit<Project, 'id' | 'createdAt' | 'updatedAt' | 'views' | 'clicks' | 'promptsCopied'>) => Promise<Project>;
+  createProject: (data: NewProjectData) => Promise<Project>;
   updateProject: (id: string, updates: Partial<Project>) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
   togglePublishStatus: (id: string) => Promise<void>;
   duplicateProject: (id: string) => Promise<void>;
-  
-  // Interactions
-  recordCopyPrompt: (projectId?: string) => void;
-  recordClickLink: (projectId?: string) => void;
-  recordView: (projectId?: string) => void;
+
+  // Interactions (métricas reais)
+  recordCopyPrompt: (project: Project) => void;
+  recordClickLink: (project: Project) => void;
+  recordView: (project: Project) => void;
 
   // Toast
   toasts: ToastState[];
-  showToast: (message: string, type?: 'success' | 'info' | 'cyan') => void;
+  showToast: (message: string, type?: ToastType) => void;
   removeToast: (id: number) => void;
 
   // Navigation helpers
@@ -58,105 +63,115 @@ interface ProjectContextType {
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
 
+const VIEWED_KEY_PREFIX = 'skillhub_viewed_';
+
+const errorMessage = (err: unknown, fallback: string): string => {
+  if (err instanceof Error && err.name === 'SlugTakenError') return err.message;
+  const code = typeof err === 'object' && err && 'code' in err ? String((err as { code: unknown }).code) : '';
+  if (code === 'permission-denied') return 'Permissão negada pelo servidor. Faça login novamente.';
+  if (code === 'unavailable') return 'Sem conexão com o servidor. Tente novamente.';
+  return fallback;
+};
+
+const randomSuffix = () => crypto.getRandomValues(new Uint32Array(1))[0].toString(36).slice(0, 5);
+
 export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'projects' | 'create' | 'edit' | 'public' | 'login'>('login');
+  const [currentView, setCurrentView] = useState<View>('login');
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [activePublicSlug, setActivePublicSlug] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastState[]>([]);
+  const projectsRef = useRef<Project[]>([]);
+  useEffect(() => {
+    projectsRef.current = projects;
+  }, [projects]);
 
-  const isFirebaseConnected = isFirebaseConfigured();
+  const isAuthenticated = Boolean(currentUser);
 
-  // Listen to Auth state
+  const removeToast = useCallback((id: number) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
+
+  const showToast = useCallback((message: string, type: ToastType = 'success') => {
+    const id = Date.now() + Math.random();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => removeToast(id), type === 'error' ? 6000 : 3200);
+  }, [removeToast]);
+
+  // Sessão do Firebase Auth
   useEffect(() => {
     const unsubscribe = authService.onAuthChange((user) => {
       setCurrentUser(user);
-      setIsAuthenticated(Boolean(user));
       setAuthLoading(false);
     });
     return () => unsubscribe();
   }, []);
 
-  // Fetch real projects from Firestore on mount
+  // Projetos do usuário logado, em tempo real
   useEffect(() => {
-    let isMounted = true;
-    const loadProjects = async () => {
-      setIsLoading(true);
-      try {
-        const data = await projectService.getAll();
-        if (isMounted) {
-          setProjects(data);
-        }
-      } catch (err) {
+    if (!currentUser) {
+      setProjects([]);
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(true);
+    const unsubscribe = projectService.subscribeToOwnerProjects(
+      currentUser.uid,
+      (list) => {
+        setProjects(list);
+        setIsLoading(false);
+      },
+      (err) => {
         console.error('Erro ao carregar projetos:', err);
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
+        setIsLoading(false);
+        showToast(errorMessage(err, 'Não foi possível carregar seus projetos.'), 'error');
       }
-    };
+    );
+    return () => unsubscribe();
+  }, [currentUser, showToast]);
 
-    loadProjects();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  // Handle clean URL routing & route protection
+  // Roteamento por URL + proteção de rotas
   useEffect(() => {
     const handleLocation = () => {
       let path = window.location.pathname;
       const hash = window.location.hash;
 
-      // Normalize any legacy hash
       if (hash && hash.startsWith('#/')) {
         path = hash.replace('#', '');
         window.history.replaceState(null, '', path);
       }
 
-      // 1. Rota pública de projeto (/p/:slug) - sempre acessível sem login
+      // Rota pública de projeto (/p/:slug) - sempre acessível sem login
       if (path.startsWith('/p/')) {
-        const slug = path.replace('/p/', '').replace(/\/$/, '');
+        const slug = decodeURIComponent(path.replace('/p/', '').replace(/\/$/, ''));
         if (slug) {
           setActivePublicSlug(slug);
           setCurrentView('public');
+          return;
         }
-        return;
       }
+      setActivePublicSlug(null);
 
-      // Se o Firebase ainda estiver inicializando a verificação de sessão, aguarda
       if (authLoading) return;
 
-      // 2. Não autenticado -> Redireciona sempre para /login
       if (!isAuthenticated) {
-        if (path !== '/login') {
-          window.history.replaceState(null, '', '/login');
-        }
+        if (path !== '/login') window.history.replaceState(null, '', '/login');
         setCurrentView('login');
         return;
       }
 
-      // 3. Autenticado -> Permite navegação protegida
-      if (path === '/login' || path === '/') {
-        window.history.replaceState(null, '', '/dashboard');
-        setEditingProjectId(null);
-        setCurrentView('dashboard');
-      } else if (path === '/dashboard') {
+      if (path === '/dashboard') {
         setEditingProjectId(null);
         setCurrentView('dashboard');
       } else if (path === '/novo-projeto' || path === '/criar' || path === '/new') {
         setEditingProjectId(null);
         setCurrentView('create');
-      } else if (path.startsWith('/editar/')) {
-        const id = path.replace('/editar/', '').replace(/\/$/, '');
-        if (id) {
-          setEditingProjectId(id);
-          setCurrentView('edit');
-        }
+      } else if (path.startsWith('/editar/') && path.replace('/editar/', '').replace(/\/$/, '')) {
+        setEditingProjectId(path.replace('/editar/', '').replace(/\/$/, ''));
+        setCurrentView('edit');
       } else if (path === '/projetos' || path === '/projects') {
         setEditingProjectId(null);
         setCurrentView('projects');
@@ -176,204 +191,180 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   }, [authLoading, isAuthenticated]);
 
-  const showToast = (message: string, type: 'success' | 'info' | 'cyan' = 'success') => {
-    const id = Date.now() + Math.random();
-    setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => {
-      removeToast(id);
-    }, 3200);
-  };
+  const getProjectById = (id: string) => projects.find(p => p.id === id);
+  const getProjectBySlug = (slug: string) => projects.find(p => p.slug === slug);
 
-  const removeToast = (id: number) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
-  };
-
-  const getProjectById = (id: string) => {
-    return projects.find(p => p.id === id);
-  };
-
-  const getProjectBySlug = (slug: string) => {
-    return projects.find(p => p.slug === slug);
-  };
-
-  // Direct fetch for public page traffic
   const fetchPublicProject = async (slug: string): Promise<Project | null> => {
-    const existing = projects.find(p => p.slug === slug);
-    if (existing) return existing;
-    return await projectService.getBySlug(slug);
+    const own = projectsRef.current.find(p => p.slug === slug);
+    if (own) return own;
+    return projectService.getBySlug(slug);
   };
 
-  const createProject = async (
-    data: Omit<Project, 'id' | 'createdAt' | 'updatedAt' | 'views' | 'clicks' | 'promptsCopied'>
-  ): Promise<Project> => {
+  const requireUser = (): AuthUser => {
+    if (!currentUser) throw new Error('Sessão expirada. Faça login novamente.');
+    return currentUser;
+  };
+
+  const createProject = async (data: NewProjectData): Promise<Project> => {
+    const user = requireUser();
+    const now = today();
     const newProject: Project = {
       ...data,
-      id: `proj-${Date.now()}`,
+      id: projectService.newId(),
+      ownerId: user.uid,
       views: 0,
       clicks: 0,
       promptsCopied: 0,
-      createdAt: new Date().toISOString().split('T')[0],
-      updatedAt: new Date().toISOString().split('T')[0],
+      createdAt: now,
+      updatedAt: now,
       blocks: data.blocks || [],
     };
 
-    // Optimistic UI update
-    setProjects(prev => [newProject, ...prev]);
-    // Save to Firestore
-    await projectService.create(newProject);
-    showToast(`Projeto "${newProject.name}" salvo no Firebase!`, 'cyan');
+    try {
+      await projectService.create(newProject);
+    } catch (err) {
+      showToast(errorMessage(err, 'Não foi possível salvar o projeto.'), 'error');
+      throw err;
+    }
+    showToast(`Projeto "${newProject.name}" salvo!`, 'cyan');
     return newProject;
   };
 
   const updateProject = async (id: string, updates: Partial<Project>) => {
-    const updatedAt = new Date().toISOString().split('T')[0];
-    setProjects(prev =>
-      prev.map(p => (p.id === id ? { ...p, ...updates, updatedAt } : p))
-    );
-    await projectService.update(id, updates);
+    const current = projectsRef.current.find(p => p.id === id);
+    if (!current) throw new Error('Projeto não encontrado.');
+
+    // Atualização otimista com rollback em caso de falha
+    setProjects(prev => prev.map(p => (p.id === id ? { ...p, ...updates } : p)));
+    try {
+      await projectService.update(current, updates);
+    } catch (err) {
+      setProjects(prev => prev.map(p => (p.id === id ? current : p)));
+      showToast(errorMessage(err, 'Não foi possível salvar as alterações.'), 'error');
+      throw err;
+    }
     showToast('Alterações salvas com sucesso!', 'success');
   };
 
   const deleteProject = async (id: string) => {
-    const proj = projects.find(p => p.id === id);
+    const proj = projectsRef.current.find(p => p.id === id);
+    if (!proj) return;
     setProjects(prev => prev.filter(p => p.id !== id));
-    await projectService.delete(id);
-    showToast(`Projeto "${proj?.name || ''}" removido.`, 'info');
+    try {
+      await projectService.delete(proj);
+      showToast(`Projeto "${proj.name}" removido.`, 'info');
+    } catch (err) {
+      setProjects(prev => (prev.some(p => p.id === id) ? prev : [proj, ...prev]));
+      showToast(errorMessage(err, 'Não foi possível excluir o projeto.'), 'error');
+    }
   };
 
   const togglePublishStatus = async (id: string) => {
-    const proj = projects.find(p => p.id === id);
+    const proj = projectsRef.current.find(p => p.id === id);
     if (!proj) return;
-    const nextStatus = proj.status === 'published' ? 'draft' : 'published';
-    await updateProject(id, { status: nextStatus });
+    try {
+      await updateProject(id, { status: proj.status === 'published' ? 'draft' : 'published' });
+    } catch {
+      // toast já exibido em updateProject
+    }
   };
 
   const duplicateProject = async (id: string) => {
-    const orig = projects.find(p => p.id === id);
+    const orig = projectsRef.current.find(p => p.id === id);
     if (!orig) return;
-    const duplicated: Project = {
-      ...orig,
-      id: `proj-${Date.now()}`,
-      name: `${orig.name} (Cópia)`,
-      slug: `${orig.slug}-copia-${Math.floor(Math.random() * 1000)}`,
-      pageTitle: `${orig.pageTitle} (Cópia)`,
-      status: 'draft',
-      views: 0,
-      clicks: 0,
-      promptsCopied: 0,
-      createdAt: new Date().toISOString().split('T')[0],
-      updatedAt: new Date().toISOString().split('T')[0],
-      blocks: JSON.parse(JSON.stringify(orig.blocks)),
-    };
-    setProjects(prev => [duplicated, ...prev]);
-    await projectService.create(duplicated);
-    showToast('Projeto duplicado no Firebase!', 'info');
+    try {
+      await createProject({
+        name: `${orig.name} (Cópia)`.slice(0, 120),
+        slug: `${orig.slug.slice(0, 66)}-copia-${randomSuffix()}`,
+        pageTitle: `${orig.pageTitle} (Cópia)`.slice(0, 200),
+        description: orig.description,
+        status: 'draft',
+        categoryBadge: orig.categoryBadge,
+        blocks: JSON.parse(JSON.stringify(orig.blocks)),
+      });
+    } catch {
+      // toast já exibido em createProject
+    }
   };
 
-  const recordCopyPrompt = (projectId?: string) => {
-    if (!projectId) return;
-    setProjects(prev =>
-      prev.map(p => (p.id === projectId ? { ...p, promptsCopied: p.promptsCopied + 1 } : p))
-    );
-    projectService.recordPromptCopy(projectId);
+  // --- Métricas reais ---
+  // O próprio dono não gera métricas ao visualizar/testar a sua página.
+  const isOwnerOf = (project: Project) => Boolean(currentUser && currentUser.uid === project.ownerId);
+
+  const recordMetric = (project: Project, metric: MetricKey) => {
+    if (project.status !== 'published' || isOwnerOf(project)) return;
+    projectService.recordMetric(project.id, metric);
   };
 
-  const recordClickLink = (projectId?: string) => {
-    if (!projectId) return;
-    setProjects(prev =>
-      prev.map(p => (p.id === projectId ? { ...p, clicks: p.clicks + 1 } : p))
-    );
-    projectService.recordClick(projectId);
+  const recordView = (project: Project) => {
+    if (project.status !== 'published' || isOwnerOf(project)) return;
+    // Uma visualização por projeto por sessão do navegador
+    const key = `${VIEWED_KEY_PREFIX}${project.id}`;
+    try {
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, '1');
+    } catch {
+      // sessionStorage indisponível: registra mesmo assim
+    }
+    projectService.recordMetric(project.id, 'views');
   };
 
-  const recordView = (projectId?: string) => {
-    if (!projectId) return;
-    setProjects(prev =>
-      prev.map(p => (p.id === projectId ? { ...p, views: p.views + 1 } : p))
-    );
-    projectService.recordView(projectId);
+  const recordCopyPrompt = (project: Project) => recordMetric(project, 'promptsCopied');
+  const recordClickLink = (project: Project) => recordMetric(project, 'clicks');
+
+  // --- Navegação ---
+  const go = (path: string, view: View, editId: string | null = null) => {
+    window.history.pushState(null, '', path);
+    setEditingProjectId(editId);
+    setActivePublicSlug(null);
+    setCurrentView(view);
   };
 
-  const navigateToDashboard = () => {
-    window.history.pushState(null, '', '/dashboard');
-    setCurrentView('dashboard');
-    setEditingProjectId(null);
-  };
-
-  const navigateToProjects = () => {
-    window.history.pushState(null, '', '/projetos');
-    setCurrentView('projects');
-    setEditingProjectId(null);
-  };
-
-  const navigateToCreate = () => {
-    window.history.pushState(null, '', '/novo-projeto');
-    setEditingProjectId(null);
-    setCurrentView('create');
-  };
-
-  const navigateToEdit = (id: string) => {
-    window.history.pushState(null, '', `/editar/${id}`);
-    setEditingProjectId(id);
-    setCurrentView('edit');
-  };
-
+  const navigateToDashboard = () => go('/dashboard', 'dashboard');
+  const navigateToProjects = () => go('/projetos', 'projects');
+  const navigateToCreate = () => go('/novo-projeto', 'create');
+  const navigateToEdit = (id: string) => go(`/editar/${id}`, 'edit', id);
   const navigateToPublic = (slug: string) => {
     window.history.pushState(null, '', `/p/${slug}`);
     setActivePublicSlug(slug);
     setCurrentView('public');
   };
 
-  const login = async (email: string, password: string) => {
-    try {
-      const user = await authService.signIn(email, password);
-      setCurrentUser(user);
-      setIsAuthenticated(true);
-      window.history.pushState(null, '', '/dashboard');
-      setCurrentView('dashboard');
-      showToast('Acesso autorizado! Bem-vindo ao SkillHub.', 'cyan');
-    } catch (err: unknown) {
-      const errorMsg = err instanceof Error ? err.message : 'Falha na autenticação';
-      showToast(errorMsg, 'info');
-      throw err;
-    }
+  // --- Autenticação ---
+  const afterLogin = (user: AuthUser, message: string) => {
+    setCurrentUser(user);
+    go('/dashboard', 'dashboard');
+    showToast(message, 'cyan');
+  };
+
+  const login = async (email: string, password: string, remember = true) => {
+    const user = await authService.signIn(email, password, remember);
+    afterLogin(user, 'Acesso autorizado! Bem-vindo ao SkillHub.');
   };
 
   const loginWithGoogle = async () => {
     try {
       const user = await authService.signInGoogle();
-      setCurrentUser(user);
-      setIsAuthenticated(true);
-      window.history.pushState(null, '', '/dashboard');
-      setCurrentView('dashboard');
-      showToast(`Bem-vindo, ${user.displayName}!`, 'cyan');
+      afterLogin(user, `Bem-vindo, ${user.displayName}!`);
     } catch (err: unknown) {
-      const errorMsg = err instanceof Error ? err.message : 'Falha no login com Google';
-      showToast(errorMsg, 'info');
+      const code = typeof err === 'object' && err && 'code' in err ? String((err as { code: unknown }).code) : '';
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') return;
+      showToast('Falha no login com Google.', 'error');
     }
   };
 
-  const register = async (email: string, pass: string) => {
-    try {
-      const user = await authService.signUp(email, pass);
-      setCurrentUser(user);
-      setIsAuthenticated(true);
-      window.history.pushState(null, '', '/dashboard');
-      setCurrentView('dashboard');
-      showToast('Conta criada com sucesso no Firebase!', 'cyan');
-    } catch (err: unknown) {
-      const errorMsg = err instanceof Error ? err.message : 'Falha no cadastro';
-      showToast(errorMsg, 'info');
-      throw err;
-    }
+  const register = async (email: string, pass: string, remember = true) => {
+    const user = await authService.signUp(email, pass, remember);
+    afterLogin(user, 'Conta criada com sucesso!');
   };
+
+  const requestPasswordReset = (email: string) => authService.sendPasswordReset(email);
 
   const logout = async () => {
     await authService.signOut();
     setCurrentUser(null);
-    setIsAuthenticated(false);
-    window.history.pushState(null, '', '/login');
-    setCurrentView('login');
+    setProjects([]);
+    go('/login', 'login');
     showToast('Sessão encerrada com sucesso.', 'info');
   };
 
@@ -382,19 +373,16 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       value={{
         projects,
         isLoading,
-        isFirebaseConnected,
         currentUser,
         currentView,
-        setCurrentView,
         editingProjectId,
-        setEditingProjectId,
         activePublicSlug,
-        setActivePublicSlug,
         isAuthenticated,
         authLoading,
         login,
         loginWithGoogle,
         register,
+        requestPasswordReset,
         logout,
         getProjectById,
         getProjectBySlug,
@@ -422,6 +410,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   );
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useProjects = () => {
   const context = useContext(ProjectContext);
   if (!context) {

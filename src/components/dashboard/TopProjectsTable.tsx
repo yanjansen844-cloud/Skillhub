@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useProjects } from '../../context/ProjectContext';
+import { publicHost, publicUrl } from '../../utils/url';
 import { Flame, Eye, Copy, ExternalLink, ArrowRight, Check } from 'lucide-react';
 
 export const TopProjectsTable: React.FC = () => {
@@ -11,7 +12,7 @@ export const TopProjectsTable: React.FC = () => {
 
   const handleCopyLink = (slug: string, id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const url = `${window.location.origin}/p/${slug}`;
+    const url = publicUrl(slug);
     navigator.clipboard.writeText(url);
     setCopiedId(id);
     showToast('Link da página pública copiado!', 'cyan');
@@ -42,7 +43,7 @@ export const TopProjectsTable: React.FC = () => {
         <div className="space-y-3">
           {topProjects.length === 0 && (
             <div className="py-8 text-center text-xs text-slate-400 bg-[#1a1338]/40 border border-dashed border-purple-500/20 rounded-xl">
-              Nenhum projeto cadastrado no Firebase ainda.
+              Você ainda não criou nenhum projeto.
             </div>
           )}
           {topProjects.map((project, index) => {
@@ -83,7 +84,7 @@ export const TopProjectsTable: React.FC = () => {
                       </span>
                     </div>
                     <p className="text-xs text-slate-400 font-mono truncate">
-                      skillhub.io/p/{project.slug}
+                      {publicHost()}/p/{project.slug}
                     </p>
                   </div>
                 </div>
@@ -134,7 +135,7 @@ export const TopProjectsTable: React.FC = () => {
 
       <div className="mt-4 pt-3 border-t border-purple-500/10 flex items-center justify-between text-xs text-slate-400">
         <span>Total de {projects.length} projetos monitorados</span>
-        <span className="text-cyan-400 font-medium">Atualizado em tempo real</span>
+        <span className="text-cyan-400 font-medium">Sincronizado em tempo real</span>
       </div>
     </div>
   );

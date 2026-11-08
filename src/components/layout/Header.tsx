@@ -62,7 +62,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
             className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-cyan-300 hover:text-cyan-200 bg-cyan-950/30 hover:bg-cyan-900/40 rounded-lg border border-cyan-500/30 transition-all shadow-sm cursor-pointer"
           >
             <ExternalLink className="w-3.5 h-3.5" />
-            <span>Ver Exemplo Público</span>
+            <span>Ver Página Publicada</span>
           </button>
         )}
 

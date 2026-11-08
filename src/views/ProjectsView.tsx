@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useProjects } from '../context/ProjectContext';
+import { publicHost, publicUrl } from '../utils/url';
 import {
   Search,
   ExternalLink,
@@ -50,7 +51,7 @@ export const ProjectsView: React.FC = () => {
 
   const handleCopyLink = (slug: string, id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    const url = `${window.location.origin}/p/${slug}`;
+    const url = publicUrl(slug);
     navigator.clipboard.writeText(url);
     setCopiedId(id);
     showToast('Link do projeto copiado para a área de transferência!', 'cyan');
@@ -352,7 +353,7 @@ export const ProjectsView: React.FC = () => {
                             {project.name}
                           </p>
                           <p className="text-xs text-purple-300/70 font-mono">
-                            skillhub.io/p/{project.slug}
+                            {publicHost()}/p/{project.slug}
                           </p>
                         </div>
                       </td>

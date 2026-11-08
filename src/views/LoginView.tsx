@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useProjects } from '../context/ProjectContext';
-import { loginRateLimiter, sanitizeText } from '../utils/security';
+import { loginRateLimiter } from '../utils/security';
 import {
   Layers,
   Lock,
@@ -8,15 +8,13 @@ import {
   Eye,
   EyeOff,
   ArrowRight,
-  ShieldCheck,
   CheckCircle2,
-  Zap,
   AlertCircle,
   Timer
 } from 'lucide-react';
 
 export const LoginView: React.FC = () => {
-  const { login, loginWithGoogle, register } = useProjects();
+  const { login, loginWithGoogle, register, requestPasswordReset } = useProjects();
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -24,16 +22,8 @@ export const LoginView: React.FC = () => {
   const [rememberMe, setRememberMe] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [forgotPasswordNotice, setForgotPasswordNotice] = useState(false);
+  const [forgotPasswordNotice, setForgotPasswordNotice] = useState<string | null>(null);
   const [lockoutSeconds, setLockoutSeconds] = useState<number>(() => loginRateLimiter.getRemainingLockoutSeconds());
-
-  // Clean legacy demo mock user from localStorage on mount
-  useEffect(() => {
-    const saved = localStorage.getItem('skillhub_auth_user');
-    if (saved && (saved.includes('demo-user') || saved.includes('demo@'))) {
-      localStorage.removeItem('skillhub_auth_user');
-    }
-  }, []);
 
   // Countdown timer for lockout
   useEffect(() => {
@@ -65,16 +55,17 @@ export const LoginView: React.FC = () => {
       return;
     }
 
-    const cleanEmail = sanitizeText(email);
-    const cleanPass = sanitizeText(password, 256);
+    // A senha é enviada exatamente como digitada (sem trim/corte)
+    const cleanEmail = email.trim().slice(0, 254);
+    const cleanPass = password;
 
     setIsLoading(true);
 
     try {
       if (isRegisterMode) {
-        await register(cleanEmail, cleanPass);
+        await register(cleanEmail, cleanPass, rememberMe);
       } else {
-        await login(cleanEmail, cleanPass);
+        await login(cleanEmail, cleanPass, rememberMe);
       }
       // Reset rate limiter on success
       loginRateLimiter.reset();
@@ -106,12 +97,29 @@ export const LoginView: React.FC = () => {
     }
   };
 
-  const handleFillAdminCredentials = () => {
-    if (lockoutSeconds > 0) return;
-    setEmail('admin@skillhub.io');
-    setPassword('SkillHub2026!');
-    setIsRegisterMode(false);
+  const handleForgotPassword = async () => {
     setErrorMessage(null);
+    const target = email.trim();
+    if (!target) {
+      setErrorMessage('Digite seu e-mail no campo acima para receber o link de redefinição.');
+      return;
+    }
+    try {
+      await requestPasswordReset(target);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : '';
+      if (msg.includes('invalid-email')) {
+        setErrorMessage('E-mail inválido.');
+        return;
+      }
+      if (msg.includes('too-many-requests')) {
+        setErrorMessage('Muitas solicitações. Tente novamente em alguns minutos.');
+        return;
+      }
+      // Demais erros (ex.: usuário inexistente) caem na mesma mensagem genérica,
+      // para não revelar quais e-mails possuem conta.
+    }
+    setForgotPasswordNotice(`Se existir uma conta para ${target}, você receberá um e-mail com o link para redefinir a senha.`);
   };
 
   const handleGoogleLogin = async () => {
@@ -147,19 +155,10 @@ export const LoginView: React.FC = () => {
             <span className="font-display font-bold text-2xl text-white tracking-tight">
               Skill<span className="text-purple-400">Hub</span>
             </span>
-            <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
-              PRO
-            </span>
           </div>
           <p className="text-xs sm:text-sm text-slate-400">
             Painel de gerenciamento de projetos & bio páginas
           </p>
-
-          {/* Firebase Connection Pill */}
-          <div className="mt-2.5 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-mono border border-emerald-500/25 bg-emerald-500/10 text-emerald-400">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>Firebase Auth Ativo (skillhub-b12fd)</span>
-          </div>
         </div>
 
         {/* Card Body */}
@@ -264,7 +263,7 @@ export const LoginView: React.FC = () => {
                 {!isRegisterMode && (
                   <button
                     type="button"
-                    onClick={() => setForgotPasswordNotice(true)}
+                    onClick={handleForgotPassword}
                     className="text-xs text-purple-400 hover:text-cyan-300 transition-colors"
                   >
                     Esqueceu a senha?
@@ -305,11 +304,6 @@ export const LoginView: React.FC = () => {
                 />
                 <span className="text-xs text-slate-300">Lembrar deste dispositivo</span>
               </label>
-
-              <span className="text-[11px] text-emerald-400 flex items-center gap-1 font-medium">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                SSL 256-bit
-              </span>
             </div>
 
             {/* Submit Button */}
@@ -372,31 +366,18 @@ export const LoginView: React.FC = () => {
               </svg>
               <span>Continuar com Google</span>
             </button>
-
-            {/* 1-Click Fast Admin Fill */}
-            <button
-              type="button"
-              onClick={handleFillAdminCredentials}
-              disabled={isLoading || lockoutSeconds > 0}
-              className="w-full py-2.5 px-4 rounded-xl text-xs sm:text-sm font-medium text-purple-300 hover:text-white bg-[#1c1440] hover:bg-[#251b52] border border-purple-500/25 hover:border-purple-400/40 transition-all flex items-center justify-center gap-2 group cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Zap className="w-4 h-4 text-cyan-400" />
-              <span>Preencher Conta Admin (admin@skillhub.io)</span>
-            </button>
           </div>
 
-          {/* Forgot password simulated alert */}
+          {/* Confirmação de envio do e-mail de redefinição */}
           {forgotPasswordNotice && (
             <div className="mt-4 p-3 rounded-xl bg-purple-950/60 border border-purple-500/30 text-xs text-slate-300 animate-slide-up flex items-start justify-between gap-2">
               <div className="flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
-                <span>
-                  Para redefinir a senha no Firebase em produção, utilize o link de redefinição por e-mail ou faça login com o Google.
-                </span>
+                <span>{forgotPasswordNotice}</span>
               </div>
               <button
                 type="button"
-                onClick={() => setForgotPasswordNotice(false)}
+                onClick={() => setForgotPasswordNotice(null)}
                 className="text-slate-400 hover:text-white text-xs font-bold"
               >
                 ✕

@@ -34,6 +34,9 @@ export const PublicProjectPage: React.FC<Props> = ({ slug }) => {
     recordClickLink,
     recordView,
     showToast,
+    currentUser,
+    authLoading,
+    isAuthenticated,
   } = useProjects();
 
   const [project, setProject] = useState<Project | null>(() => getProjectBySlug(slug) || null);
@@ -42,37 +45,43 @@ export const PublicProjectPage: React.FC<Props> = ({ slug }) => {
   const [deviceMode, setDeviceMode] = useState<'responsive' | 'mobile'>('responsive');
   const [copiedUrl, setCopiedUrl] = useState(false);
 
+  const isOwner = Boolean(project && currentUser && currentUser.uid === project.ownerId);
+
   useEffect(() => {
+    // Aguarda o Firebase resolver a sessão: assim o dono não conta visualização da própria página
+    if (authLoading) return;
     let isMounted = true;
     const load = async () => {
-      const found = getProjectBySlug(slug);
-      if (found) {
-        setProject(found);
-        setLoading(false);
-        recordView(found.id);
-        return;
-      }
       setLoading(true);
-      const res = await fetchPublicProject(slug);
-      if (isMounted) {
+      try {
+        const res = await fetchPublicProject(slug);
+        if (!isMounted) return;
         setProject(res);
-        setLoading(false);
-        if (res) {
-          recordView(res.id);
-        }
+        if (res) recordView(res);
+      } catch (err) {
+        console.error('Erro ao carregar página pública:', err);
+        if (isMounted) setProject(null);
+      } finally {
+        if (isMounted) setLoading(false);
       }
     };
     load();
     return () => {
       isMounted = false;
     };
-  }, [slug]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug, authLoading]);
 
-  const handleCopyPrompt = (promptText: string, blockId: string) => {
-    navigator.clipboard.writeText(promptText);
+  const handleCopyPrompt = async (promptText: string, blockId: string) => {
+    try {
+      await navigator.clipboard.writeText(promptText);
+    } catch {
+      showToast('Não foi possível copiar. Selecione o texto manualmente.', 'error');
+      return;
+    }
     setCopiedBlockId(blockId);
     if (project) {
-      recordCopyPrompt(project.id);
+      recordCopyPrompt(project);
     }
     showToast('Prompt copiado com sucesso!', 'cyan');
 
@@ -98,13 +107,15 @@ export const PublicProjectPage: React.FC<Props> = ({ slug }) => {
   };
 
   const handleLinkClick = (rawUrl: string) => {
-    if (project) {
-      recordClickLink(project.id);
-    }
     const safeUrl = sanitizeUrl(rawUrl);
-    if (safeUrl && safeUrl !== '#') {
-      window.open(safeUrl, '_blank', 'noopener,noreferrer');
+    if (safeUrl === '#') {
+      showToast('Este link é inválido ou não é seguro.', 'error');
+      return;
     }
+    if (project) {
+      recordClickLink(project);
+    }
+    window.open(safeUrl, '_blank', 'noopener,noreferrer');
   };
 
   const renderPromptWithPlaceholders = (text: string) => {
@@ -143,19 +154,22 @@ export const PublicProjectPage: React.FC<Props> = ({ slug }) => {
         <p className="text-sm text-slate-400 mb-6 max-w-sm">
           O link que você tentou acessar não existe ou foi removido.
         </p>
-        <button
-          onClick={navigateToDashboard}
-          className="px-4 py-2 text-sm font-semibold text-white bg-purple-600 rounded-xl shadow-purple-glow cursor-pointer"
-        >
-          Voltar ao Painel
-        </button>
+        {isAuthenticated && (
+          <button
+            onClick={navigateToDashboard}
+            className="px-4 py-2 text-sm font-semibold text-white bg-purple-600 rounded-xl shadow-purple-glow cursor-pointer"
+          >
+            Voltar ao Painel
+          </button>
+        )}
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-[#080612] bg-grid text-slate-100 flex flex-col items-center selection:bg-purple-500 selection:text-white">
-      {/* Top Admin Controls Floating Header */}
+      {/* Barra de controle: visível apenas para o dono do projeto */}
+      {isOwner && (
       <div className="w-full bg-[#110c28]/90 backdrop-blur-md border-b border-purple-500/15 py-2.5 px-4 sticky top-0 z-40 flex items-center justify-between text-xs">
         <div className="flex items-center gap-2">
           <button
@@ -211,6 +225,13 @@ export const PublicProjectPage: React.FC<Props> = ({ slug }) => {
           </button>
         </div>
       </div>
+      )}
+
+      {isOwner && project.status === 'draft' && (
+        <div className="w-full bg-amber-500/10 border-b border-amber-500/30 text-amber-200 text-xs text-center py-2 px-4">
+          Rascunho: só você consegue ver esta página. Publique o projeto para liberar o acesso aos seguidores.
+        </div>
+      )}
 
       {/* Main Container Wrapper */}
       <div
@@ -232,8 +253,6 @@ export const PublicProjectPage: React.FC<Props> = ({ slug }) => {
             <span className="text-xs font-semibold text-slate-200 tracking-tight">
               Skill<span className="text-purple-400">Hub</span>
             </span>
-            <span className="w-1 h-1 rounded-full bg-cyan-400"></span>
-            <span className="text-[10px] text-cyan-300 font-medium">Recursos Verificados</span>
           </div>
         </div>
 

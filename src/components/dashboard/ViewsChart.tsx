@@ -1,45 +1,73 @@
 import React, { useState } from 'react';
-import { useProjects } from '../../context/ProjectContext';
-import { BarChart3, TrendingUp } from 'lucide-react';
+import { BarChart3 } from 'lucide-react';
+import type { DailyMetric } from '../../types';
+import { percentChange, sumRange } from '../../hooks/useDailyMetrics';
+import { TrendBadge } from './TrendBadge';
 
-export const ViewsChart: React.FC = () => {
-  const { projects } = useProjects();
-  const [period, setPeriod] = useState<'7d' | '30d' | '90d'>('7d');
+interface Props {
+  series: DailyMetric[];
+  loading: boolean;
+  error: boolean;
+}
+
+type Period = '7d' | '30d' | '90d';
+const PERIOD_DAYS: Record<Period, number> = { '7d': 7, '30d': 30, '90d': 90 };
+
+const formatDay = (iso: string, withWeekday: boolean) => {
+  const d = new Date(`${iso}T12:00:00Z`);
+  return withWeekday
+    ? d.toLocaleDateString('pt-BR', { weekday: 'short', timeZone: 'UTC' }).replace('.', '')
+    : d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'UTC' });
+};
+
+export const ViewsChart: React.FC<Props> = ({ series, loading, error }) => {
+  const [period, setPeriod] = useState<Period>('7d');
   const [hoveredPoint, setHoveredPoint] = useState<number | null>(null);
 
-  const totalViews = projects.reduce((acc, p) => acc + (p.views || 0), 0);
-  const totalClicks = projects.reduce((acc, p) => acc + (p.clicks || 0), 0);
+  const days = PERIOD_DAYS[period];
+  const range = series.slice(-days);
 
-  // Derive real chart points from project metrics
+  // Dados reais: diário para 7/30 dias, semanal (somado) para 90 dias
   const getChartData = () => {
-    if (period === '7d') {
-      const days = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Hoje'];
-      const weights = [0.08, 0.11, 0.15, 0.18, 0.14, 0.16, 0.18];
-      return days.map((day, i) => ({
-        date: day,
-        views: Math.round(totalViews * weights[i]),
-        clicks: Math.round(totalClicks * weights[i]),
+    if (period !== '90d') {
+      return range.map((d) => ({
+        date: formatDay(d.date, period === '7d'),
+        label: formatDay(d.date, false),
+        views: d.views,
+        clicks: d.clicks,
       }));
     }
-    const weeks = ['Sem 1', 'Sem 2', 'Sem 3', 'Sem 4'];
-    const weights = [0.18, 0.22, 0.28, 0.32];
-    return weeks.map((w, i) => ({
-      date: w,
-      views: Math.round(totalViews * weights[i]),
-      clicks: Math.round(totalClicks * weights[i]),
-    }));
+    const weeks: { date: string; label: string; views: number; clicks: number }[] = [];
+    for (let i = 0; i < range.length; i += 7) {
+      const chunk = range.slice(i, i + 7);
+      if (chunk.length === 0) continue;
+      const first = formatDay(chunk[0].date, false);
+      const last = formatDay(chunk[chunk.length - 1].date, false);
+      weeks.push({
+        date: first,
+        label: `${first} – ${last}`,
+        views: chunk.reduce((a, d) => a + d.views, 0),
+        clicks: chunk.reduce((a, d) => a + d.clicks, 0),
+      });
+    }
+    return weeks;
   };
 
   const rawData = getChartData();
-  const maxVal = Math.max(10, Math.max(...rawData.map(d => d.views)) * 1.2);
+  const hasData = rawData.some((d) => d.views > 0 || d.clicks > 0);
+  const currentViews = sumRange(series, 'views', days);
+  const previousViews = sumRange(series, 'views', days, days);
+  const viewsChange = percentChange(currentViews, previousViews);
+  const labelEvery = rawData.length > 10 ? Math.ceil(rawData.length / 8) : 1;
+
+  const maxVal = Math.max(5, Math.max(0, ...rawData.map(d => d.views)) * 1.2);
   const svgHeight = 220;
   const svgWidth = 600;
   const paddingX = 40;
   const paddingY = 25;
 
-  // Calculate points
   const points = rawData.map((d, index) => {
-    const x = paddingX + (index / (rawData.length - 1)) * (svgWidth - paddingX * 2);
+    const x = paddingX + (index / Math.max(1, rawData.length - 1)) * (svgWidth - paddingX * 2);
     const y = svgHeight - paddingY - (d.views / maxVal) * (svgHeight - paddingY * 2);
     return { x, y, ...d };
   });
@@ -56,7 +84,7 @@ export const ViewsChart: React.FC = () => {
     return `${acc} C ${cpX1} ${cpY1}, ${cpX2} ${cpY2}, ${curr.x} ${curr.y}`;
   }, '');
 
-  const areaPath = `${linePath} L ${points[points.length - 1].x} ${svgHeight - paddingY} L ${points[0].x} ${svgHeight - paddingY} Z`;
+  const areaPath = points.length === 0 ? '' : `${linePath} L ${points[points.length - 1].x} ${svgHeight - paddingY} L ${points[0].x} ${svgHeight - paddingY} Z`;
 
   return (
     <div className="bg-[#140e2d]/80 backdrop-blur-sm border border-purple-500/15 rounded-2xl p-5 sm:p-6 shadow-card-glow relative overflow-hidden">
@@ -100,14 +128,29 @@ export const ViewsChart: React.FC = () => {
           <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-cyan-glow" />
           <span className="text-slate-300">Visualizações de Páginas</span>
         </div>
-        <div className="flex items-center gap-1.5 text-emerald-400 font-medium">
-          <TrendingUp className="w-3.5 h-3.5" />
-          <span>+28.4% vs período anterior</span>
-        </div>
+        <TrendBadge
+          change={viewsChange}
+          current={currentViews}
+          label={`vs ${days} dias anteriores`}
+        />
+        <span className="text-slate-400">
+          {currentViews.toLocaleString('pt-BR')} no período
+        </span>
       </div>
 
       {/* SVG Chart area */}
       <div className="relative w-full overflow-hidden">
+        {(loading || error || !hasData) && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+            <p className="text-xs text-slate-400 bg-[#140e2d]/90 border border-purple-500/20 rounded-xl px-4 py-2 text-center max-w-xs">
+              {loading
+                ? 'Carregando métricas...'
+                : error
+                  ? 'Não foi possível carregar o histórico de métricas.'
+                  : 'Ainda não há visualizações registradas neste período.'}
+            </p>
+          </div>
+        )}
         <svg
           viewBox={`0 0 ${svgWidth} ${svgHeight}`}
           className="w-full h-56 sm:h-64 overflow-visible"
@@ -187,7 +230,7 @@ export const ViewsChart: React.FC = () => {
                   textAnchor="middle"
                   className="text-[10px] fill-slate-400 font-mono select-none"
                 >
-                  {pt.date}
+                  {index % labelEvery === 0 || index === points.length - 1 ? pt.date : ''}
                 </text>
               </g>
             );
@@ -200,7 +243,7 @@ export const ViewsChart: React.FC = () => {
             className="absolute top-2 left-1/2 -translate-x-1/2 bg-[#1b143d] border border-cyan-500/40 rounded-xl px-3 py-1.5 shadow-xl text-center pointer-events-none transition-all duration-150 animate-fade-in"
           >
             <p className="text-[11px] text-slate-400 font-medium">
-              {points[hoveredPoint].date}
+              {points[hoveredPoint].label}
             </p>
             <p className="text-xs font-bold text-cyan-300">
               {points[hoveredPoint].views.toLocaleString('pt-BR')} visualizações

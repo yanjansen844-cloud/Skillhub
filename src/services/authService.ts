@@ -2,13 +2,15 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signInWithPopup,
+  sendPasswordResetEmail,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
   signOut,
   onAuthStateChanged,
-  type User
+  type User,
 } from 'firebase/auth';
 import { auth, googleProvider } from './firebase';
-
-const LOCAL_USER_KEY = 'skillhub_auth_user';
 
 export interface AuthUser {
   uid: string;
@@ -17,76 +19,49 @@ export interface AuthUser {
   photoURL: string | null;
 }
 
+// A sessão é mantida pelo próprio Firebase Auth (IndexedDB). Nada de perfil em localStorage.
+const toAuthUser = (u: User): AuthUser => ({
+  uid: u.uid,
+  email: u.email,
+  displayName: u.displayName || u.email?.split('@')[0] || 'Criador',
+  photoURL: u.photoURL,
+});
+
 export const authService = {
-  // Subscribe to real Firebase auth state changes
   onAuthChange(callback: (user: AuthUser | null) => void) {
-    return onAuthStateChanged(auth, (firebaseUser: User | null) => {
-      if (firebaseUser) {
-        const user: AuthUser = {
-          uid: firebaseUser.uid,
-          email: firebaseUser.email,
-          displayName: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Criador',
-          photoURL: firebaseUser.photoURL,
-        };
-        localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(user));
-        callback(user);
-      } else {
-        localStorage.removeItem(LOCAL_USER_KEY);
-        callback(null);
-      }
-    });
+    return onAuthStateChanged(auth, (u) => callback(u ? toAuthUser(u) : null));
   },
 
-  // Real Sign in with Firebase email and password
-  async signIn(email: string, pass: string): Promise<AuthUser> {
-    if (!email || !pass) {
-      throw new Error('Informe o e-mail e a senha.');
-    }
+  /** "Lembrar deste dispositivo": sessão persistente ou só até fechar o navegador. */
+  async applyPersistence(remember: boolean): Promise<void> {
+    await setPersistence(auth, remember ? browserLocalPersistence : browserSessionPersistence);
+  },
 
+  async signIn(email: string, pass: string, remember = true): Promise<AuthUser> {
+    if (!email || !pass) throw new Error('Informe o e-mail e a senha.');
+    await this.applyPersistence(remember);
     const cred = await signInWithEmailAndPassword(auth, email.trim(), pass);
-    const user: AuthUser = {
-      uid: cred.user.uid,
-      email: cred.user.email,
-      displayName: cred.user.displayName || cred.user.email?.split('@')[0] || 'Criador',
-      photoURL: cred.user.photoURL,
-    };
-    localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(user));
-    return user;
+    return toAuthUser(cred.user);
   },
 
-  // Real Sign up with Firebase email and password
-  async signUp(email: string, pass: string): Promise<AuthUser> {
-    if (!email || !pass) {
-      throw new Error('Informe o e-mail e a senha para cadastro.');
-    }
-
+  async signUp(email: string, pass: string, remember = true): Promise<AuthUser> {
+    if (!email || !pass) throw new Error('Informe o e-mail e a senha para cadastro.');
+    await this.applyPersistence(remember);
     const cred = await createUserWithEmailAndPassword(auth, email.trim(), pass);
-    const user: AuthUser = {
-      uid: cred.user.uid,
-      email: cred.user.email,
-      displayName: cred.user.displayName || cred.user.email?.split('@')[0] || 'Criador',
-      photoURL: cred.user.photoURL,
-    };
-    localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(user));
-    return user;
+    return toAuthUser(cred.user);
   },
 
-  // Real Sign in with Google
   async signInGoogle(): Promise<AuthUser> {
     const cred = await signInWithPopup(auth, googleProvider);
-    const user: AuthUser = {
-      uid: cred.user.uid,
-      email: cred.user.email,
-      displayName: cred.user.displayName || cred.user.email?.split('@')[0] || 'Criador',
-      photoURL: cred.user.photoURL,
-    };
-    localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(user));
-    return user;
+    return toAuthUser(cred.user);
   },
 
-  // Real Logout
+  async sendPasswordReset(email: string): Promise<void> {
+    if (!email) throw new Error('Informe seu e-mail para receber o link de redefinição.');
+    await sendPasswordResetEmail(auth, email.trim());
+  },
+
   async signOut(): Promise<void> {
-    localStorage.removeItem(LOCAL_USER_KEY);
     await signOut(auth);
-  }
+  },
 };

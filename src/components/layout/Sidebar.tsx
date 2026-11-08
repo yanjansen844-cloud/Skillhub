@@ -9,8 +9,15 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) => {
-  const { currentView, navigateToDashboard, navigateToProjects, logout } = useProjects();
+  const { currentView, currentUser, navigateToDashboard, navigateToProjects, logout } = useProjects();
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+
+  const initials = (currentUser?.displayName || currentUser?.email || '?')
+    .split(/[\s@._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('');
 
   const isDashboardActive = currentView === 'dashboard';
   const isProjectsActive = currentView === 'projects' || currentView === 'create' || currentView === 'edit';
@@ -115,14 +122,24 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
         <div className="p-4 border-t border-purple-500/10 space-y-3">
           {/* Subtle user badge preview */}
           <div className="p-2.5 rounded-xl bg-[#140e2e] border border-purple-500/10 flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center text-xs font-bold text-white shadow-sm">
-              SH
-            </div>
+            {currentUser?.photoURL ? (
+              <img
+                src={currentUser.photoURL}
+                alt=""
+                referrerPolicy="no-referrer"
+                className="w-8 h-8 rounded-lg object-cover"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center text-xs font-bold text-white shadow-sm uppercase">
+                {initials}
+              </div>
+            )}
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-slate-200 truncate">Creator Studio</p>
-              <p className="text-[11px] text-slate-400 truncate flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                Online
+              <p className="text-xs font-semibold text-slate-200 truncate">
+                {currentUser?.displayName || 'Criador'}
+              </p>
+              <p className="text-[11px] text-slate-400 truncate" title={currentUser?.email || ''}>
+                {currentUser?.email}
               </p>
             </div>
           </div>

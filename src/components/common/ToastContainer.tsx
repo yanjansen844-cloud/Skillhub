@@ -1,6 +1,6 @@
 import React from 'react';
 import { useProjects } from '../../context/ProjectContext';
-import { CheckCircle2, Info, Sparkles, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Info, Sparkles, X } from 'lucide-react';
 
 export const ToastContainer: React.FC = () => {
   const { toasts, removeToast } = useProjects();
@@ -20,11 +20,16 @@ export const ToastContainer: React.FC = () => {
         } else if (toast.type === 'info') {
           borderClass = 'border-purple-400/40';
           icon = <Info className="w-5 h-5 text-purple-300 shrink-0" />;
+        } else if (toast.type === 'error') {
+          borderClass = 'border-red-500/50';
+          bgClass = 'bg-[#2a0f1a]/95';
+          icon = <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />;
         }
 
         return (
           <div
             key={toast.id}
+            role={toast.type === 'error' ? 'alert' : 'status'}
             className={`pointer-events-auto flex items-center justify-between p-3.5 rounded-xl border ${borderClass} ${bgClass} backdrop-blur-md shadow-2xl text-slate-100 text-sm animate-slide-up transition-all duration-200`}
           >
             <div className="flex items-center gap-3">

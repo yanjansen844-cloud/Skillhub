@@ -41,6 +41,7 @@ export type ContentBlock = TextBlock | PromptBlock | LinkBlock | ToolBlock;
 
 export interface Project {
   id: string;
+  ownerId: string;
   name: string;
   slug: string;
   pageTitle: string;
@@ -55,17 +56,13 @@ export interface Project {
   blocks: ContentBlock[];
 }
 
-export interface DashboardMetric {
-  title: string;
-  value: string | number;
-  change: string;
-  isPositive: boolean;
-  subtext: string;
-}
+export type MetricKey = 'views' | 'clicks' | 'promptsCopied';
 
-export interface ChartDataPoint {
-  date: string;
+// Contadores diários reais, gravados em projects/{id}/daily/{AAAA-MM-DD}
+export interface DailyMetric {
+  date: string; // AAAA-MM-DD (UTC)
   views: number;
   clicks: number;
+  promptsCopied: number;
 }
 
